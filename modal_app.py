@@ -2880,7 +2880,8 @@ def web():
         for _sym in _core:
             _existing = _sb.table("symbol_scores").select("symbol") \
                 .eq("symbol", _sym).maybe_single().execute()
-            if not _existing.data:
+            _data = getattr(_existing, "data", None) if _existing is not None else None
+            if not _data:
                 _sb.table("symbol_scores").insert(
                     {"symbol": _sym, "enabled": True}
                 ).execute()
