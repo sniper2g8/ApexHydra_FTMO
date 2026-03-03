@@ -86,7 +86,7 @@ python apex_hydra_FTMO_bot.py
 You should see something like:
 
 ```
-ApexHydra Forex Telegram Bot started.
+ApexHydra FTMO Telegram Bot started.
 ```
 
 In Telegram, send `/start` to your bot. You should get the welcome message and command list. Try `/status` to see account summary from Supabase.

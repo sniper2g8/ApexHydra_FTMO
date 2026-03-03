@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║         ApexHydra Forex — Telegram Management Bot                   ║
+║         ApexHydra FTMO — Telegram Management Bot                    ║
 ║  Full remote control + live alerts via Telegram                      ║
 ║                                                                      ║
 ║  .env:                                                               ║
@@ -148,6 +148,23 @@ def db_get_recent_logs(limit: int = 15) -> list:
         logger.error(f"Log error: {e}"); return []
 
 
+def db_get_ftmo_trading_days() -> int:
+    """Count distinct calendar days (UTC) with at least one opened trade (FTMO min 4 days)."""
+    try:
+        since = (datetime.now(timezone.utc) - timedelta(days=365)).isoformat()
+        r = sb.table("trades").select("opened_at").not_.is_("lot", "null").gte("opened_at", since).execute()
+        rows = r.data or []
+        dates = set()
+        for row in rows:
+            ot = row.get("opened_at")
+            if ot and isinstance(ot, str):
+                dates.add(ot[:10])
+        return len(dates)
+    except Exception as e:
+        logger.warning(f"FTMO trading days query failed: {e}")
+        return 0
+
+
 def db_get_news_blackouts() -> list:
     try:
         r = (sb.table("news_blackouts").select("*")
@@ -220,7 +237,7 @@ def restricted_callback(func):
 @restricted
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     text = (
-        "🐍 <b>ApexHydra Forex Bot</b> (FTMO compliant)\n\n"
+        "🐍 <b>ApexHydra FTMO Bot</b>\n\n"
         "📊 <b>Monitoring:</b>\n"
         "/status — Status + account summary\n"
         "/perf — Performance + per-symbol P&amp;L\n"
@@ -261,7 +278,9 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     max_dd      = float(state.get("max_daily_dd", 0.05)) * 100
     max_pos     = int(state.get("max_concurrent_trades", 5))
     max_td      = int(state.get("max_trades_per_day", 20))
-    updated_at  = str(state.get("updated_at","N/A"))[:16]
+    _uat        = state.get("updated_at")
+    updated_at  = (str(_uat)[:16].replace("T", " ") if _uat else "—")
+    ftmo_days   = db_get_ftmo_trading_days()
 
     keyboard = InlineKeyboardMarkup([
         [
@@ -273,7 +292,7 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ])
 
     text = (
-        f"<b>🐍 ApexHydra Forex</b>\n{'─'*28}\n"
+        f"<b>🐍 ApexHydra FTMO</b>\n{'─'*28}\n"
         f"<b>Status:</b> {status_icon}\n"
         f"<b>Last sync:</b> {updated_at} UTC\n\n"
         f"<b>💰 Account</b>\n"
@@ -284,7 +303,8 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"{'  ⚠️' if daily_dd > DD_ALERT_PCT else ''}\n\n"
         f"<b>📊 Today</b>\n"
         f"Open:   <code>{len(open_pos)}</code> / {max_pos} positions\n"
-        f"Trades: <code>{len(trades_td)}</code> / {max_td} today (FTMO)\n\n"
+        f"Trades: <code>{len(trades_td)}</code> / {max_td} today\n"
+        f"FTMO days: <code>{ftmo_days} / 4</code>\n\n"
         f"<b>⚙️ Settings</b>\n"
         f"Capital:  <code>${float(state.get('capital',0)):,.0f}</code>\n"
         f"Max DD:   <code>{max_dd:.1f}%</code>\n"
@@ -602,7 +622,7 @@ async def cmd_setmaxpos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 @restricted
 async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     text = (
-        "<b>📖 ApexHydra Forex Bot — Help</b>\n\n"
+        "<b>📖 ApexHydra FTMO Bot — Help</b>\n\n"
         "<b>Monitoring:</b>\n"
         "<code>/status</code> — Full status + inline controls\n"
         "<code>/perf</code> — P&amp;L + per-symbol breakdown\n"
@@ -672,16 +692,18 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         cur_equity  = float(eq.get("equity",  cur_bal))
         open_pnl    = cur_equity - cur_bal
         today_pnl, daily_dd = _compute_daily_pnl(state)
-        max_pos     = int(state.get("max_concurrent_trades",5))
-        max_td      = int(state.get("max_trades_per_day",40))
+        max_pos     = int(state.get("max_concurrent_trades", 5))
+        max_td      = int(state.get("max_trades_per_day", 20))
+        ftmo_days   = db_get_ftmo_trading_days()
         text = (
-            f"<b>🐍 ApexHydra Forex</b>  <i>(refreshed)</i>\n"
+            f"<b>🐍 ApexHydra FTMO</b>  <i>(refreshed)</i>\n"
             f"<b>Status:</b> {status_icon}\n"
             f"Balance: <code>${cur_bal:,.2f}</code>  Equity: <code>${cur_equity:,.2f}</code>\n"
             f"Open P&amp;L: <code>{open_pnl:+.2f}</code>  Today: <code>{today_pnl:+.2f}</code>\n"
             f"Daily DD: <code>{daily_dd:.2f}%</code>\n"
             f"Positions: <code>{len(open_pos)}</code>/{max_pos}  "
-            f"Trades today: <code>{len(trades_td)}</code>/{max_td}\n"
+            f"Trades today: <code>{len(trades_td)}</code>/{max_td}  "
+            f"FTMO days: <code>{ftmo_days}/4</code>\n"
         )
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("▶ Start",  callback_data="ctrl_start"),
@@ -870,7 +892,7 @@ async def post_init(application: Application):
         BotCommand("help",       "Detailed help"),
     ]
     await application.bot.set_my_commands(commands)
-    logger.info("ApexHydra Forex Telegram Bot started.")
+    logger.info("ApexHydra FTMO Telegram Bot started.")
 
 
 def main():
