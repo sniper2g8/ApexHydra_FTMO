@@ -261,7 +261,37 @@ with st.sidebar:
         if update_state({"is_running": True}, sid):
             st.toast("Started!", icon="✅")
             st.rerun()
-    if st.button("⛔ Stop & close all", key="stop_btn", disabled=not is_running, type="primary", use_container_width=True):
+    # FTMO: require 4 trading days; confirm before stop when days < 4
+    stop_confirm_pending = st.session_state.get("stop_confirm_pending", False)
+    ftmo_days_ok = ftmo_trading_days is None or ftmo_trading_days >= 4
+    if stop_confirm_pending and not ftmo_days_ok:
+        st.warning(f"FTMO requires **4 trading days**. You have **{ftmo_trading_days or 0}/4**. Stopping now may fail the challenge.")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("Yes, stop anyway", key="stop_confirm_yes", type="primary", use_container_width=True):
+                st.session_state.pop("stop_confirm_pending", None)
+                stopped = False
+                try:
+                    base = MODAL_SIGNAL_URL.rstrip("/")
+                    if base.endswith("/signal"): base = base[:-7]
+                    r = requests.post(base + "/closeall", json={"source": "dashboard"},
+                        headers=({"X-APEXHYDRA-TOKEN": API_TOKEN} if API_TOKEN else {}), timeout=8)
+                    stopped = r.status_code == 200
+                except Exception:
+                    pass
+                if not stopped:
+                    stopped = update_state({"is_running": False}, sid)
+                if stopped:
+                    st.toast("Bot stopped + close all sent!", icon="🛑")
+                st.rerun()
+        with c2:
+            if st.button("Cancel", key="stop_confirm_no", use_container_width=True):
+                st.session_state.pop("stop_confirm_pending", None)
+                st.rerun()
+    elif st.button("⛔ Stop & close all", key="stop_btn", disabled=not is_running, type="primary", use_container_width=True):
+        if not ftmo_days_ok:
+            st.session_state["stop_confirm_pending"] = True
+            st.rerun()
         stopped = False
         try:
             base = MODAL_SIGNAL_URL.rstrip("/")

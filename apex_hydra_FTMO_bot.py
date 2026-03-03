@@ -165,6 +165,17 @@ def db_get_ftmo_trading_days() -> int:
         return 0
 
 
+def db_get_peak_balance() -> float:
+    """Max balance ever recorded in equity table (for total DD %)."""
+    try:
+        r = sb.table("equity").select("balance").order("balance", desc=True).limit(1).execute()
+        if r.data and len(r.data) > 0:
+            return float(r.data[0].get("balance", 0) or 0)
+    except Exception as e:
+        logger.warning(f"Peak balance query failed: {e}")
+    return 0.0
+
+
 def db_get_news_blackouts() -> list:
     try:
         r = (sb.table("news_blackouts").select("*")
@@ -281,6 +292,16 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     _uat        = state.get("updated_at")
     updated_at  = (str(_uat)[:16].replace("T", " ") if _uat else "—")
     ftmo_days   = db_get_ftmo_trading_days()
+    init_cap    = float(state.get("initial_capital") or state.get("capital") or 0)
+    peak_bal    = db_get_peak_balance()
+    target_10   = init_cap * 0.10 if init_cap > 0 else 0
+    profit_so_far = cur_bal - init_cap if init_cap > 0 else 0
+    progress_pct = (profit_so_far / target_10 * 100) if target_10 > 0 else 0
+    total_dd_pct = 0.0
+    ref_peak = max(init_cap, peak_bal) if (init_cap or peak_bal) else 0
+    if ref_peak > 0 and cur_equity < ref_peak:
+        total_dd_pct = (ref_peak - cur_equity) / ref_peak * 100
+    max_total_dd = float(state.get("max_total_dd", 0.10)) * 100
 
     keyboard = InlineKeyboardMarkup([
         [
@@ -290,6 +311,17 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("⛔ Emergency Stop", callback_data="ctrl_stop")],
         [InlineKeyboardButton("🔄 Refresh",         callback_data="status_refresh")],
     ])
+
+    # FTMO Challenge Progress block (when we have initial capital)
+    ftmo_block = ""
+    if init_cap > 0:
+        ftmo_block = (
+            f"\n<b>🎯 FTMO Challenge Progress</b>\n"
+            f"Profit:      <code>${profit_so_far:+,.0f}</code> / <code>${target_10:,.0f}</code> ({progress_pct:.1f}%)\n"
+            f"Trading days: <code>{ftmo_days} / 4</code>\n"
+            f"Daily DD:    <code>{daily_dd:.2f}%</code> / 5% limit\n"
+            f"Total DD:   <code>{total_dd_pct:.2f}%</code> / {max_total_dd:.1f}% limit\n"
+        )
 
     text = (
         f"<b>🐍 ApexHydra FTMO</b>\n{'─'*28}\n"
@@ -304,7 +336,8 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"<b>📊 Today</b>\n"
         f"Open:   <code>{len(open_pos)}</code> / {max_pos} positions\n"
         f"Trades: <code>{len(trades_td)}</code> / {max_td} today\n"
-        f"FTMO days: <code>{ftmo_days} / 4</code>\n\n"
+        f"{'' if ftmo_block else f'FTMO days: <code>{ftmo_days} / 4</code>\n'}"
+        f"{ftmo_block}\n"
         f"<b>⚙️ Settings</b>\n"
         f"Capital:  <code>${float(state.get('capital',0)):,.0f}</code>\n"
         f"Max DD:   <code>{max_dd:.1f}%</code>\n"

@@ -3189,6 +3189,9 @@ document.getElementById("f").addEventListener("submit", async e => {{
         if not state.get("is_running", False):
             return {"action": "NONE", "reason": "bot_stopped"}
 
+        # FTMO: We never auto-stop on profit target here. Dashboard enforces min 4 trading
+        # days before allowing stop (confirmation when days < 4). Keep allowing signals
+        # until user explicitly stops; ftmo_trading_days is returned for UI display only.
         mode = state.get("mode", "SAFE")
 
         # Symbol enabled
