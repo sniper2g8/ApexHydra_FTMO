@@ -1692,7 +1692,7 @@ def run_forward_test():
             supabase.table("strategies").upsert({
                 "strategy": sname, "fwd_score": score,
                 "is_active": sname == best, "updated_at": now,
-            }).execute()
+            }, on_conflict="strategy").execute()
         except Exception as e:
             log.warning("[FWD] DB failed %s: %s", sname, e)
 
@@ -2189,7 +2189,7 @@ def force_learn():
                 "is_active":  s == best_strategy,
                 "fwd_score":  1.0 if s == best_strategy else 0.5,
                 "updated_at": now_str,
-            }).execute()
+            }, on_conflict="strategy").execute()
         except Exception as e:
             log.warning("[FORCE_LEARN] DB update failed for %s: %s", s, e)
 
