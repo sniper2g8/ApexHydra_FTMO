@@ -12,12 +12,13 @@
 -- =============================================================================
 
 -- Bot state: one row (or latest wins). FTMO defaults: 5% daily, 10% total.
+-- capital=0: EA/FTMO demo will register real balance via /equity; set in dashboard if needed.
 CREATE TABLE IF NOT EXISTS bot_state (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   is_running        BOOLEAN NOT NULL DEFAULT false,
   mode              TEXT NOT NULL DEFAULT 'SAFE',
-  capital           NUMERIC(18,2) NOT NULL DEFAULT 100000,
-  initial_capital    NUMERIC(18,2),
+  capital           NUMERIC(18,2) NOT NULL DEFAULT 0,
+  initial_capital   NUMERIC(18,2),
   max_daily_dd      NUMERIC(5,4) NOT NULL DEFAULT 0.05,
   max_total_dd      NUMERIC(5,4) NOT NULL DEFAULT 0.10,
   max_concurrent_trades INT NOT NULL DEFAULT 5,
@@ -247,8 +248,9 @@ CREATE TABLE IF NOT EXISTS ftmo_compliance (
 COMMENT ON TABLE ftmo_compliance IS 'FTMO: one row per trading day (CE(S)T midnight); trailing_peak = max(initial, all prior EOD balances).';
 
 -- =============================================================================
--- Seed: single bot_state row with FTMO defaults (1-Step Challenge style).
--- Set capital and initial_capital to your FTMO account size (e.g. 100000).
+-- Seed: single bot_state row — no dummy capital. Your FTMO demo account
+-- will register real balance/equity when the EA posts to /equity.
+-- Set "Initial capital (FTMO)" in the dashboard to your account size for 5%/10% limits.
 -- =============================================================================
 INSERT INTO bot_state (
   is_running,
@@ -263,16 +265,14 @@ INSERT INTO bot_state (
 ) VALUES (
   false,
   'SAFE',
-  100000,
-  100000,
+  0,
+  NULL,
   0.05,
   0.10,
   5,
   20,
   5
 );
-
--- Run the INSERT only once for a fresh DB.
 
 -- =============================================================================
 -- Migration for existing DBs (run if bot_state already exists without FTMO cols)
