@@ -2401,25 +2401,21 @@ _LOT_SCALE = {
 # =============================================================================
 # SESSION WINDOWS — validated from live 23-27 Feb data + literature consensus
 #
+# Sydney: 22:00–07:00 UTC (AUDUSD, NZDUSD). Tokyo: 00:00–09:00 UTC (USDJPY, EURJPY).
 # Core principle: only trade during the session where each pair has genuine
 # institutional flow.  Wider windows = more opportunities but lower signal quality.
 # Start conservative; widen after 50+ trades confirm win rate > 50% per session.
 #
 # Session grid (UTC) — pairs in EA + rotation:
-#   EURUSD  07-17  London + NY  — USD pair, liquid both sessions
-#   GBPUSD  07-17  London + NY  — confirmed strong performer
-#   USDJPY  00-16  Asian + LON + early NY — Tokyo is prime JPY session
+#   EURUSD  07-21  London + NY
+#   GBPUSD  07-21  London + NY
+#   USDJPY  00-21  Tokyo 00–09 + London + NY
 #   XAUUSD  06-20  Asian close → NY close (avoids Sunday/Friday gaps)
 #   XAGUSD  07-20  London open → NY close only
-#   USDCHF  07-16  London + early NY — Swiss, stop before late-NY vol
-#   AUDUSD  07-17  London + NY — conservative start; add Asian (22-07)
-#                  after 50 trades confirm win rate (Sydney pip noise is real)
-#   USDCAD  07-17  London + NY — CAD most liquid when Canada is open (13-17)
-#   EURJPY  00-16  Asian + London + early NY — JPY component drives Asian flow,
-#                  EUR component drives London; both sessions are productive
-#   NZDUSD  07-17  London + NY — conservative start same as AUDUSD
-#   EURGBP  07-16  London only — purely European pair, NY adds noise not edge
-#   GBPJPY  07-12  London only — high spread in NY; keep restricted to AM session
+#   AUDUSD  22-07 Sydney + 07-21 London+NY
+#   NZDUSD  22-07 Sydney + 07-21 London+NY
+#   EURJPY  00-21  Tokyo + London + NY
+#   (others as below)
 
 # Symbol → list of (start_hour_utc, end_hour_utc) windows where trading allowed
 # NY session in UTC ≈ 13:00–22:00 (8am–5pm Eastern). End hour is exclusive: (7,21) = 07:00–20:59 UTC.
@@ -2427,16 +2423,16 @@ _SESSION_WINDOWS = {
     "EURUSD":  [(7, 21)],   # London + full NY (was 17; extended so NY not "off peak")
     "GBPUSD":  [(7, 21)],   # London + full NY
     "USDCHF":  [(7, 21)],   # London + NY (was 7-16; fix off_peak during NY)
-    "USDJPY":  [(0, 21)],   # Asian + London + full NY (was 0-16)
+    "USDJPY":  [(0, 21)],   # Tokyo 00–09 + London + full NY
     "GBPJPY":  [(7, 12)],   # London only — high spread in NY; keep tight
     "XAUUSD":  [(6, 20)],   # 06:00–19:59 UTC — Asian close → NY close (avoids Sunday gap)
     "XAUUSDM": [(6, 20)],
     "XAGUSD":  [(7, 20)],   # 07:00–19:59 UTC — London open → NY close only
     "XAGUSDM": [(7, 20)],
-    "AUDUSD":  [(7, 21)],   # London + full NY
+    "AUDUSD":  [(22, 24), (0, 7), (7, 21)],   # Sydney 22–07 + London + NY
     "USDCAD":  [(7, 21)],   # London + NY — CAD liquid when Canada open (13-17 UTC)
-    "EURJPY":  [(0, 21)],   # Asian + London + full NY (was 0-16)
-    "NZDUSD":  [(7, 21)],   # London + full NY
+    "EURJPY":  [(0, 21)],   # Tokyo 00–09 + London + full NY
+    "NZDUSD":  [(22, 24), (0, 7), (7, 21)],   # Sydney 22–07 + London + NY
     "EURGBP":  [(7, 21)],   # London + NY (was 7-16; fix off_peak during NY)
 }
 _DEFAULT_WINDOWS = [(7, 21)]  # safe fallback: London + NY
@@ -2466,11 +2462,13 @@ def _is_session_active(symbol: str) -> tuple:
     # ── Dead zone — 21:00–07:00 UTC for forex (NY close → London open) ─────
     # Metals (XAUUSD, XAGUSD): restricted to (6,20) / (7,20) UTC in _SESSION_WINDOWS.
     # JPY pairs with Asian windows: allow before 07:00 for Tokyo session.
+    # AUD/NZD: allow 22:00–07:00 UTC (Sydney session) — pair windows checked below.
     sym_up       = symbol.upper()
     is_metal_sym = sym_up.startswith("XAUUSD") or sym_up.startswith("XAGUSD")
     is_jpy_asian = "JPY" in sym_up and hour < 7
+    is_sydney_ok = sym_up in ("AUDUSD", "NZDUSD") and (hour >= 22 or hour < 7)
     if hour >= 21 or (hour < 7 and not is_metal_sym and not is_jpy_asian):
-        if not is_metal_sym and not is_jpy_asian:
+        if not is_metal_sym and not is_jpy_asian and not is_sydney_ok:
             if not (weekday == 6 and hour >= 22):  # allow Sunday 22:00+ for market open
                 return False, "dead_zone_low_volume"
 

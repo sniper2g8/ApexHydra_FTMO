@@ -322,6 +322,34 @@ with st.sidebar:
             st.toast("Day baseline reset.", icon="♻️")
             st.rerun()
     st.markdown("---")
+    st.markdown("**Currency pairs**")
+    st.caption("Enable/disable pairs for signals")
+    CORE_PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "XAGUSD"]
+    sym_scores = q("symbol_scores")
+    enabled_by_sym = {}
+    for r in (sym_scores or []):
+        s = (r.get("symbol") or "").strip().upper()
+        if s in CORE_PAIRS:
+            enabled_by_sym[s] = bool(r.get("enabled", True))
+    for p in CORE_PAIRS:
+        if p not in enabled_by_sym:
+            enabled_by_sym[p] = True
+    pair_toggles = {}
+    for p in CORE_PAIRS:
+        pair_toggles[p] = st.toggle(p, value=enabled_by_sym[p], key=f"pair_{p}")
+    if st.button("Apply pairs", key="apply_pairs_btn", use_container_width=True):
+        now_iso = datetime.now(timezone.utc).isoformat()
+        try:
+            for p in CORE_PAIRS:
+                if pair_toggles[p] != enabled_by_sym[p]:
+                    db.table("symbol_scores").upsert({
+                        "symbol": p, "enabled": pair_toggles[p], "updated_at": now_iso
+                    }, on_conflict="symbol").execute()
+            st.toast("Currency pairs saved.", icon="✅")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Save failed: {e}")
+    st.markdown("---")
     st.caption(f"Last load: {datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC")
 
 # ── Main header ────────────────────────────────────────────────────────────────
