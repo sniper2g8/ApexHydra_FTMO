@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS bot_state (
   max_daily_dd      NUMERIC(5,4) NOT NULL DEFAULT 0.05,
   max_total_dd      NUMERIC(5,4) NOT NULL DEFAULT 0.10,
   max_concurrent_trades INT NOT NULL DEFAULT 5,
-  max_trades_per_day   INT NOT NULL DEFAULT 20,
+  max_trades_per_day   INT NOT NULL DEFAULT 10,
   risk_day_start    TIMESTAMPTZ,
   entry_throttle_mins  INT NOT NULL DEFAULT 5,
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),

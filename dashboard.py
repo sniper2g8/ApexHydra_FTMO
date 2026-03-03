@@ -577,7 +577,7 @@ with st.expander("Key metrics (details)", expanded=False):
               delta=f"FTMO limit {float(state.get('max_daily_dd') or 0.05)*100:.1f}%", delta_color="inverse")
     m9.metric("Total DD", f"{total_dd_pct:.2f}%",
               delta=f"FTMO limit {float(state.get('max_total_dd') or 0.10)*100:.1f}%", delta_color="inverse")
-    m10.metric("Trades today", f"{len(trades_today)}/{int(state.get('max_trades_per_day', 40))}",
+    m10.metric("Trades today", f"{len(trades_today)}/{int(state.get('max_trades_per_day', 10))}",
                help="Confirmed trades since day baseline.")
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -1116,7 +1116,7 @@ with tab_settings:
                 ntd = st.number_input("Max Total DD (%)",  value=float(state.get("max_total_dd") or 0.10)*100, step=0.5, min_value=0.1, max_value=50.0, help="FTMO: 10%%")
                 ntdp = st.number_input(
                     "Max Trades per Day",
-                    value=int(state.get("max_trades_per_day", 40)),
+                    value=int(state.get("max_trades_per_day", 10)),
                     step=1,
                     min_value=1,
                     help="Max trades to open in a day across all 12 pairs.",

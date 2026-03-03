@@ -851,7 +851,7 @@ void ReportEquity()
 //+------------------------------------------------------------------+
 //| IsInLocalNewsBlackout — backup when Modal is down                  |
 //| NFP: first Friday of month 12:00–14:00 GMT                         |
-//| CPI: Tuesday 12:00–14:00 GMT (US CPI often Tue ~13:30 GMT)        |
+//| CPI: 2nd Tuesday of month (day 8–14) 12:00–14:00 GMT only        |
 //| FOMC: 1st & 3rd Wednesday of month 18:00–20:00 GMT only (~8/yr)   |
 //+------------------------------------------------------------------+
 bool IsInLocalNewsBlackout()
@@ -861,8 +861,8 @@ bool IsInLocalNewsBlackout()
    // NFP: first Friday of month (day 1–7), 12:00–13:59 GMT
    if (dt.day_of_week == 5 && dt.day <= 7 && dt.hour >= 12 && dt.hour < 14)
       return true;
-   // CPI-style: Tuesday 12:00–13:59 GMT (US CPI release ~13:30 GMT)
-   if (dt.day_of_week == 2 && dt.hour >= 12 && dt.hour < 14)
+   // CPI: 2nd Tuesday of month only (day 8–14), 12:00–13:59 GMT (US CPI ~13:30 GMT)
+   if (dt.day_of_week == 2 && dt.day >= 8 && dt.day <= 14 && dt.hour >= 12 && dt.hour < 14)
       return true;
    // FOMC: only 1st week (day 1–7) and 3rd week (day 15–21) Wednesday 18:00–19:59 GMT
    if (dt.day_of_week == 3 && (dt.day <= 7 || (dt.day >= 15 && dt.day <= 21))

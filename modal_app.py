@@ -2409,7 +2409,8 @@ _LOT_SCALE = {
 #   EURUSD  07-17  London + NY  — USD pair, liquid both sessions
 #   GBPUSD  07-17  London + NY  — confirmed strong performer
 #   USDJPY  00-16  Asian + LON + early NY — Tokyo is prime JPY session
-#   XAUUSD  06-22  Asian-close → NY-close — full liquid gold hours
+#   XAUUSD  06-20  Asian close → NY close (avoids Sunday/Friday gaps)
+#   XAGUSD  07-20  London open → NY close only
 #   USDCHF  07-16  London + early NY — Swiss, stop before late-NY vol
 #   AUDUSD  07-17  London + NY — conservative start; add Asian (22-07)
 #                  after 50 trades confirm win rate (Sydney pip noise is real)
@@ -2428,10 +2429,10 @@ _SESSION_WINDOWS = {
     "USDCHF":  [(7, 21)],   # London + NY (was 7-16; fix off_peak during NY)
     "USDJPY":  [(0, 21)],   # Asian + London + full NY (was 0-16)
     "GBPJPY":  [(7, 12)],   # London only — high spread in NY; keep tight
-    "XAUUSD":  [(0, 24)],   # Loosened — 24/5; you monitor NY manually
-    "XAUUSDM": [(0, 24)],
-    "XAGUSD":  [(0, 24)],   # Loosened — 24/5; you monitor NY manually
-    "XAGUSDM": [(0, 24)],
+    "XAUUSD":  [(6, 20)],   # 06:00–19:59 UTC — Asian close → NY close (avoids Sunday gap)
+    "XAUUSDM": [(6, 20)],
+    "XAGUSD":  [(7, 20)],   # 07:00–19:59 UTC — London open → NY close only
+    "XAGUSDM": [(7, 20)],
     "AUDUSD":  [(7, 21)],   # London + full NY
     "USDCAD":  [(7, 21)],   # London + NY — CAD liquid when Canada open (13-17 UTC)
     "EURJPY":  [(0, 21)],   # Asian + London + full NY (was 0-16)
@@ -2463,7 +2464,7 @@ def _is_session_active(symbol: str) -> tuple:
         return False, "friday_close"
 
     # ── Dead zone — 21:00–07:00 UTC for forex (NY close → London open) ─────
-    # Metals (XAUUSD, XAGUSD): no dead zone — loosened; user monitors NY manually.
+    # Metals (XAUUSD, XAGUSD): restricted to (6,20) / (7,20) UTC in _SESSION_WINDOWS.
     # JPY pairs with Asian windows: allow before 07:00 for Tokyo session.
     sym_up       = symbol.upper()
     is_metal_sym = sym_up.startswith("XAUUSD") or sym_up.startswith("XAGUSD")
@@ -2669,7 +2670,7 @@ def _check_compliance(supabase, state: dict, symbol: str = "") -> tuple:
     #                          during the current "day" window (midnight‑to‑midnight
     #                          by default, or from risk_day_start if manually reset).
     mxc  = int(state.get("max_concurrent_trades",  5))
-    mxt  = int(state.get("max_trades_per_day",    20))
+    mxt  = int(state.get("max_trades_per_day",    10))
 
     if len(open_trades) >= mxc:
         return False, f"concurrent_limit:{len(open_trades)}/{mxc}_open"
@@ -3117,7 +3118,7 @@ document.getElementById("f").addEventListener("submit", async e => {{
                 "max_daily_dd":         float(data.get("max_daily_dd", 0.05)),
                 "max_total_dd":         float(data.get("max_total_dd", 0.10)),
                 "max_concurrent_trades":int(data.get("max_concurrent_trades", 5)),
-                "max_trades_per_day":   int(data.get("max_trades_per_day", 20)),
+                "max_trades_per_day":   int(data.get("max_trades_per_day", 10)),
                 "updated_at":           datetime.now(timezone.utc).isoformat(),
             }
 

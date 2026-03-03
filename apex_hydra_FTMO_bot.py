@@ -1,12 +1,12 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║         ApexHydra FTMO — Telegram Management Bot                    ║
+║         ApexHydra FTMO — Telegram Management Bot                     ║
 ║  Full remote control + live alerts via Telegram                      ║
 ║                                                                      ║
 ║  .env:                                                               ║
 ║    TELEGRAM_BOT_TOKEN=123456:ABC...                                  ║
 ║    TELEGRAM_ALLOWED_IDS=123456789                                    ║
-║    SUPABASE_URL=https://xxx.supabase.co  (FOREX Supabase project)   ║
+║    SUPABASE_URL=https://xxx.supabase.co  (FOREX Supabase project)    ║
 ║    SUPABASE_KEY=your_service_role_key                                ║
 ║    DD_ALERT_PCT=4.0                                                  ║
 ║    DD_CRITICAL_PCT=8.0                                               ║
@@ -86,6 +86,25 @@ def db_get_equity() -> dict:
     """Latest row from equity table (balance/equity snapshots)."""
     r = sb.table("equity").select("*").order("timestamp", desc=True).limit(1).execute()
     return r.data[0] if r.data else {}
+
+
+def db_get_last_sync_time(state: dict) -> str:
+    """Last sync: bot_state.updated_at or latest equity timestamp. Returns display string."""
+    uat = state.get("updated_at")
+    if uat is not None and str(uat).strip():
+        s = str(uat).replace("T", " ")[:16]
+        if s.strip():
+            return s + " UTC"
+    try:
+        r = sb.table("equity").select("timestamp").order("timestamp", desc=True).limit(1).execute()
+        if r.data and r.data[0].get("timestamp"):
+            ts = r.data[0]["timestamp"]
+            s = str(ts).replace("T", " ")[:16]
+            if s.strip():
+                return s + " UTC (EA)"
+    except Exception:
+        pass
+    return "No sync yet"
 
 
 def db_get_equity_today() -> list:
@@ -282,15 +301,16 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     is_running  = bool(state.get("is_running", False))
     status_icon = "✅ RUNNING" if is_running else "🔴 STOPPED"
-    cur_bal     = float(eq.get("balance", float(state.get("capital", 0))))
-    cur_equity  = float(eq.get("equity",  cur_bal))
+    has_equity  = bool(eq)  # any equity row = EA has reported
+    fallback_cap = float(state.get("initial_capital") or state.get("capital") or 0)
+    cur_bal     = float(eq.get("balance", fallback_cap)) if has_equity else fallback_cap
+    cur_equity  = float(eq.get("equity", cur_bal)) if has_equity else fallback_cap
     open_pnl    = cur_equity - cur_bal
     today_pnl, daily_dd = _compute_daily_pnl(state)
     max_dd      = float(state.get("max_daily_dd", 0.05)) * 100
     max_pos     = int(state.get("max_concurrent_trades", 5))
-    max_td      = int(state.get("max_trades_per_day", 20))
-    _uat        = state.get("updated_at")
-    updated_at  = (str(_uat)[:16].replace("T", " ") if _uat else "—")
+    max_td      = int(state.get("max_trades_per_day", 10))
+    updated_at  = db_get_last_sync_time(state)
     ftmo_days   = db_get_ftmo_trading_days()
     init_cap    = float(state.get("initial_capital") or state.get("capital") or 0)
     peak_bal    = db_get_peak_balance()
@@ -323,12 +343,22 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"Total DD:   <code>{total_dd_pct:.2f}%</code> / {max_total_dd:.1f}% limit\n"
         )
 
+    cap_display = float(state.get("capital") or 0)
+    init_display = float(state.get("initial_capital") or 0)
+    settings_cap = init_display if (init_display and not cap_display) else cap_display
+    if not has_equity and not (cap_display or init_display):
+        account_note = " (set in dashboard)"
+    elif not has_equity:
+        account_note = " (EA not reporting yet)"
+    else:
+        account_note = ""
+
     text = (
         f"<b>🐍 ApexHydra FTMO</b>\n{'─'*28}\n"
         f"<b>Status:</b> {status_icon}\n"
-        f"<b>Last sync:</b> {updated_at} UTC\n\n"
+        f"<b>Last sync:</b> {updated_at}\n\n"
         f"<b>💰 Account</b>\n"
-        f"Balance:    <code>${cur_bal:,.2f}</code>\n"
+        f"Balance:    <code>${cur_bal:,.2f}</code>{account_note}\n"
         f"Equity:     <code>${cur_equity:,.2f}</code>  ({open_pnl:+.2f} open)\n"
         f"Today P&amp;L:  <code>{today_pnl:+.2f}</code>\n"
         f"Daily DD:   <code>{daily_dd:.2f}%</code> / {max_dd:.1f}% limit"
@@ -339,7 +369,8 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"{'' if ftmo_block else f'FTMO days: <code>{ftmo_days} / 4</code>\n'}"
         f"{ftmo_block}\n"
         f"<b>⚙️ Settings</b>\n"
-        f"Capital:  <code>${float(state.get('capital',0)):,.0f}</code>\n"
+        f"Capital:  <code>${settings_cap:,.0f}</code>"
+        f"{f'  (Initial: {init_display:,.0f})' if (init_display and cap_display != init_display) else ''}\n"
         f"Max DD:   <code>{max_dd:.1f}%</code>\n"
         f"Max Pos:  <code>{max_pos}</code>\n"
         f"Mode:     <code>{state.get('mode','SAFE')}</code>\n"
@@ -527,7 +558,7 @@ async def cmd_config(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"Max Daily DD:  <code>{float(state.get('max_daily_dd',0.05))*100:.1f}%</code> (FTMO 5%)\n"
         f"Max Total DD:  <code>{float(state.get('max_total_dd',0.10))*100:.1f}%</code> (FTMO 10%)\n"
         f"Max Positions: <code>{state.get('max_concurrent_trades',5)}</code>\n"
-        f"Max Trades/day:<code>{state.get('max_trades_per_day',20)}</code>\n"
+        f"Max Trades/day:<code>{state.get('max_trades_per_day',10)}</code>\n"
         f"Updated:       <code>{str(state.get('updated_at','N/A'))[:16]}</code>\n\n"
         f"<code>/setcapital 1000</code>\n"
         f"<code>/setmaxdd 5</code>\n"
@@ -721,12 +752,13 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         trades_td = db_get_trades_today()
         is_running  = bool(state.get("is_running", False))
         status_icon = "✅ RUNNING" if is_running else "🔴 STOPPED"
-        cur_bal     = float(eq.get("balance", float(state.get("capital",0))))
-        cur_equity  = float(eq.get("equity",  cur_bal))
+        fallback_cap = float(state.get("initial_capital") or state.get("capital") or 0)
+        cur_bal     = float(eq.get("balance", fallback_cap)) if eq else fallback_cap
+        cur_equity  = float(eq.get("equity", cur_bal)) if eq else fallback_cap
         open_pnl    = cur_equity - cur_bal
         today_pnl, daily_dd = _compute_daily_pnl(state)
         max_pos     = int(state.get("max_concurrent_trades", 5))
-        max_td      = int(state.get("max_trades_per_day", 20))
+        max_td      = int(state.get("max_trades_per_day", 10))
         ftmo_days   = db_get_ftmo_trading_days()
         text = (
             f"<b>🐍 ApexHydra FTMO</b>  <i>(refreshed)</i>\n"
