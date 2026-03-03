@@ -1133,12 +1133,15 @@ void ScanSymbol(string sym, int symIdx = -1)
       return;
    }
 
+   // Prevent hedging: never open opposite direction while we have a position
+   // on this symbol. If CLOSE_ON_REVERSE skips closing (e.g. opposite in profit),
+   // we skip opening the new side so we don't end up with both BUY and SELL.
+   bool oppositeStillOpen = false;
    if (CLOSE_ON_REVERSE)
    {
-      // CLOSE_ON_REVERSE FIX: only close opposite position if it is currently
-      // at a LOSS or flat. Never close a profitable position to reverse direction —
-      // that was causing the user to manually intervene to protect gains.
-      // Profitable positions are left to run to their TP or trailing stop.
+      // CLOSE_ON_REVERSE: only close opposite position if it is at a LOSS or flat.
+      // Never close a profitable position to reverse — let it run to TP.
+      // If we skip closing (opposite in profit), do NOT open the new side (no hedging).
       if (action == "BUY" && CountPositions(sym, POSITION_TYPE_SELL) > 0)
       {
          for (int i = PositionsTotal()-1; i >= 0; i--)
@@ -1152,8 +1155,11 @@ void ScanSymbol(string sym, int symIdx = -1)
             if (pnl <= 0) // only close if losing or flat
                trade.PositionClose(tk);
             else
+            {
+               oppositeStillOpen = true;
                Print("[", sym, "] CLOSE_ON_REVERSE skipped: SELL is in profit ($",
-                     DoubleToString(pnl,2), ") — letting it run to TP");
+                     DoubleToString(pnl,2), ") — letting it run to TP (no new BUY)");
+            }
          }
       }
       if (action == "SELL" && CountPositions(sym, POSITION_TYPE_BUY) > 0)
@@ -1169,10 +1175,22 @@ void ScanSymbol(string sym, int symIdx = -1)
             if (pnl <= 0)
                trade.PositionClose(tk);
             else
+            {
+               oppositeStillOpen = true;
                Print("[", sym, "] CLOSE_ON_REVERSE skipped: BUY is in profit ($",
-                     DoubleToString(pnl,2), ") — letting it run to TP");
+                     DoubleToString(pnl,2), ") — letting it run to TP (no new SELL)");
+            }
          }
       }
+   }
+   if (oppositeStillOpen)
+      return;   // Do not open opposite direction — avoid BUY+SELL on same symbol
+
+   // No hedging: if CLOSE_ON_REVERSE is off, still never open opposite when one exists
+   if (!CLOSE_ON_REVERSE)
+   {
+      if (action == "BUY" && CountPositions(sym, POSITION_TYPE_SELL) > 0) return;
+      if (action == "SELL" && CountPositions(sym, POSITION_TYPE_BUY) > 0) return;
    }
 
    ENUM_POSITION_TYPE side = (action=="BUY") ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;
