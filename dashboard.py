@@ -324,7 +324,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("**Currency pairs**")
     st.caption("Enable/disable pairs for signals")
-    CORE_PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "XAGUSD"]
+    CORE_PAIRS = ["EURJPY", "XAGUSD", "EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]
     sym_scores = q("symbol_scores")
     enabled_by_sym = {}
     for r in (sym_scores or []):
