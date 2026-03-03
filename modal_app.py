@@ -2230,6 +2230,35 @@ def _net_withdrawals(supabase) -> float:
         return 0.0
 
 
+def _get_ftmo_trading_days(supabase) -> int:
+    """
+    FTMO requires at least 4 different calendar days with at least one trade.
+    Returns count of distinct calendar days (UTC) on which a trade was opened
+    (trades with lot not null). Used to show "Trading days: X/4" and to gate
+    any future "challenge passed" logic until day 4 is reached.
+    """
+    from datetime import datetime, timezone, timedelta
+    try:
+        from_date = (datetime.now(timezone.utc) - timedelta(days=365)).isoformat()
+        rows = (
+            supabase.table("trades")
+            .select("opened_at")
+            .not_.is_("lot", "null")
+            .gte("opened_at", from_date)
+            .execute()
+            .data or []
+        )
+        dates = set()
+        for r in rows:
+            ot = r.get("opened_at")
+            if ot and isinstance(ot, str):
+                dates.add(ot[:10])  # YYYY-MM-DD
+        return len(dates)
+    except Exception as e:
+        log.warning("[FTMO] trading_days query failed: %s", e)
+        return 0
+
+
 def _equity_snapshot_fallback(supabase):
     """Write a computed equity snapshot only when no real MT5 report has
     arrived in the last 20 minutes. Called from run_forward_test every 4h.
@@ -3117,12 +3146,15 @@ document.getElementById("f").addEventListener("submit", async e => {{
             strats = supabase.table("strategies").select("strategy,fwd_score,is_active").execute().data or []
             regime = (supabase.table("market_regime").select("symbol,regime,updated_at")
                      .order("updated_at", desc=True).limit(5).execute().data or [])
+            ftmo_days = _get_ftmo_trading_days(supabase)
             return {
                 "status":          "ok",
                 "running":         state.get("is_running", False),
                 "mode":            state.get("mode", "SAFE"),
                 "strategies":      strats,
                 "recent_regimes":  regime,
+                "ftmo_trading_days": ftmo_days,
+                "ftmo_min_trading_days": 4,
                 "timestamp":       datetime.now(timezone.utc).isoformat(),
             }
         except Exception as e:
@@ -3215,7 +3247,7 @@ document.getElementById("f").addEventListener("submit", async e => {{
             if "XAU" in _sym_up:
                 _max_spread = 35.0   # gold — wide gap at session transitions
             elif "XAG" in _sym_up:
-                _max_spread = 20.0   # silver — tighter than gold, but wider than forex
+                _max_spread = 40.0   # silver — allow session/news spikes (EA cap aligned)
             elif "GBP" in _sym_up and "JPY" in _sym_up:
                 _max_spread = 7.0    # GBPJPY — elevated spread, keep hard cap
             elif "JPY" in _sym_up:
@@ -3605,9 +3637,10 @@ document.getElementById("f").addEventListener("submit", async e => {{
             n_closed_trades = n_closed,
         )
 
+        ftmo_days = _get_ftmo_trading_days(supabase)
         log.info(f"[SIGNAL] {final_action} {symbol} | {chosen} | {regime} | conf={final_conf:.3f} | "
               f"SL={sl_tp['sl_price']} TP={sl_tp['tp_price']} RR={sl_tp['rr_ratio']:.2f} | "
-              f"mode={mode} | risk_capital=${risk_capital:.0f}")
+              f"mode={mode} | risk_capital=${risk_capital:.0f} | FTMO_days={ftmo_days}/4")
         # When PPO drives the trade (heuristic was NONE or disagreed), avoid logging "no_signal"
         reason_out = ind_reason if (ind_action == final_action and (ind_reason or "").strip()) else f"{chosen}:{final_action}"
         return {
@@ -3621,6 +3654,8 @@ document.getElementById("f").addEventListener("submit", async e => {{
             "reason":        reason_out,
             "lot_scale":     _LOT_SCALE.get(mode, 1.0),
             "risk_capital":  risk_capital,
+            "ftmo_trading_days": ftmo_days,
+            "ftmo_min_trading_days": 4,
             # Dynamic SL/TP — EA should use these instead of fixed pips
             "sl_price":      sl_tp["sl_price"],
             "tp_price":      sl_tp["tp_price"],

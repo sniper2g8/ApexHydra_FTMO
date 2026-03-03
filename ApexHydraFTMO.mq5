@@ -10,8 +10,11 @@
 #include <Trade\Trade.mqh>
 
 //── Inputs ───────────────────────────────────────────────────────────
+// Set MODAL_BASE_URL to your deployed Modal app (e.g. https://acme--apexhydra-pro-web.modal.run)
+// No trailing slash. Add this URL to MT5 Tools→Options→Expert Advisors (Allowed URLs).
+// See CONNECTIVITY.md if EA/Modal/Dashboard are not communicating.
 input string MODAL_BASE_URL    = "https://YOUR-WORKSPACE--apexhydra-pro-web.modal.run";
-input string API_TOKEN         = "";        // shared with Modal APEXHYDRA_API_TOKEN + dashboard secret
+input string API_TOKEN         = "";        // same as Modal secret APEXHYDRA_API_TOKEN (or leave "" if auth disabled)
 // SYMBOL FIX: Updated to standard XAUUSD (not XAUUSDm).
 // If your broker uses a different name, change GOLD_SYMBOL below.
 // Reduced universe: TOTAL 5 symbols including metals (less noise).
@@ -66,6 +69,14 @@ input double SL_MOVE_PAST_PCT     = 0.5;   // move SL after this % toward TP (de
 // 0.0 = disabled (no quick-exit; use normal TP/half-lock/trail only).
 input double METAL_QUICK_R        = 1.0;   // close metals at ~1.0R if > 0
 
+//── Local news blackout (backup when Modal is down) ─────────────────────
+input bool   USE_LOCAL_NEWS_BLACKOUT = true;  // backup when server is unreachable
+//── Daily loss circuit breaker (FTMO 5% limit; EA stops at 4% as buffer) ─
+input double LOCAL_DAILY_LOSS_PCT    = 4.0;   // no new trades if daily loss >= this %
+//── Friday close (standard FTMO: no weekend hold; Swing account = false) ─
+input bool   FRIDAY_CLOSE_STANDARD   = true;  // close all before weekend
+input int    FRIDAY_CLOSE_HOUR_GMT   = 21;    // close by this hour GMT on Friday
+
 //── Globals ──────────────────────────────────────────────────────────
 CTrade   trade;
 string   g_symbols[];
@@ -86,6 +97,11 @@ datetime g_orderCooldownUntil[];  // don't retry this symbol until this time
 double   g_riskCapital = 0;
 const int    ORDER_FAIL_THRESHOLD = 3;    // pause after this many consecutive failures
 const int    ORDER_COOLDOWN_SECS  = 300;  // 5-minute cooldown
+// Daily loss circuit breaker: track day start balance (reset at midnight GMT)
+int      g_dayStartDate = 0;       // YYYYMMDD
+double   g_dayStartBalance = 0;    // balance at start of current day
+// Friday close: avoid closing multiple times
+int      g_fridayCloseDoneDate = 0; // YYYYMMDD when we last ran Friday close
 
 //+------------------------------------------------------------------+
 //| ReportTransaction                                                |
@@ -266,6 +282,31 @@ void OnTick()
 void OnTimer()
 {
    datetime now = TimeCurrent();
+
+   //── Daily loss circuit breaker: reset day-start balance at midnight GMT ─
+   {
+      MqlDateTime dt;
+      TimeToStruct(TimeGMT(), dt);
+      int today = dt.year * 10000 + dt.mon * 100 + dt.day;
+      if (today != g_dayStartDate)
+      {
+         g_dayStartDate = today;
+         g_dayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+      }
+   }
+
+   //── Friday close (standard FTMO: no weekend hold) ────────────────────
+   if (FRIDAY_CLOSE_STANDARD)
+   {
+      MqlDateTime dt;
+      TimeToStruct(TimeGMT(), dt);
+      int today = dt.year * 10000 + dt.mon * 100 + dt.day;
+      if (dt.day_of_week == 5 && dt.hour >= FRIDAY_CLOSE_HOUR_GMT && g_fridayCloseDoneDate != today)
+      {
+         g_fridayCloseDoneDate = today;
+         CloseAllPositionsFriday();
+      }
+   }
 
    //── Report real account balance to Modal ─────────────────────────
    if (now - g_lastEquity >= EQUITY_INTERVAL_S)
@@ -672,6 +713,34 @@ void CloseAllPositionsEmergency()
 }
 
 //+------------------------------------------------------------------+
+//| CloseAllPositionsFriday — standard FTMO: close before weekend     |
+//| Only ApexHydraFTMO positions; run once per Friday.                |
+//+------------------------------------------------------------------+
+void CloseAllPositionsFriday()
+{
+   int closed = 0;
+   for (int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if (ticket == 0) continue;
+      if (PositionGetString(POSITION_COMMENT) != "ApexHydraFTMO") continue;
+      string sym = PositionGetString(POSITION_SYMBOL);
+      if (trade.PositionClose(ticket))
+      {
+         Print("[FRIDAY CLOSE] Closed ", ticket, " (", sym, ")");
+         closed++;
+      }
+      else
+         Print("[FRIDAY CLOSE] Failed to close ", ticket, ": ", trade.ResultRetcodeDescription());
+   }
+   if (closed > 0)
+   {
+      Print("=== Friday close: ", closed, " positions closed (no weekend hold) ===");
+      ReportEquity();
+   }
+}
+
+//+------------------------------------------------------------------+
 //| SendLog — sends a log line to Modal /log endpoint.              |
 // Called after key events: trade open, close, errors, skips.      |
 // Dashboard reads these via GET /logs — downloadable as CSV.      |
@@ -780,6 +849,24 @@ void ReportEquity()
 }
 
 //+------------------------------------------------------------------+
+//| IsInLocalNewsBlackout — backup when Modal is down                  |
+//| NFP: first Friday of month 12:00–14:00 GMT                        |
+//| FOMC-style: every Wednesday 18:00–20:00 GMT                       |
+//+------------------------------------------------------------------+
+bool IsInLocalNewsBlackout()
+{
+   MqlDateTime dt;
+   TimeToStruct(TimeGMT(), dt);
+   // NFP: first Friday of month (day 1–7), 12:00–13:59 GMT
+   if (dt.day_of_week == 5 && dt.day <= 7 && dt.hour >= 12 && dt.hour < 14)
+      return true;
+   // FOMC-style: Wednesday 18:00–19:59 GMT
+   if (dt.day_of_week == 3 && dt.hour >= 18 && dt.hour < 20)
+      return true;
+   return false;
+}
+
+//+------------------------------------------------------------------+
 void ScanSymbol(string sym, int symIdx = -1)
 {
    double closes[], highs[], lows[];
@@ -809,6 +896,36 @@ void ScanSymbol(string sym, int symIdx = -1)
    MqlTick tick;
    if (!SymbolInfoTick(sym, tick)) { Print("[", sym, "] No tick"); return; }
 
+   // Local news blackout (backup when server is unreachable)
+   if (USE_LOCAL_NEWS_BLACKOUT && IsInLocalNewsBlackout())
+   {
+      static datetime lastNewsPrint = 0;
+      if (TimeCurrent() - lastNewsPrint >= 300)
+      {
+         lastNewsPrint = TimeCurrent();
+         Print("[", sym, "] Local news blackout (NFP/FOMC window) — no new trades");
+      }
+      return;
+   }
+
+   // Daily loss circuit breaker: no new trades if daily loss >= 4% (1% buffer before FTMO 5%)
+   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+   if (g_dayStartBalance > 0 && LOCAL_DAILY_LOSS_PCT > 0)
+   {
+      double dailyLossPct = (g_dayStartBalance - equity) / g_dayStartBalance * 100.0;
+      if (dailyLossPct >= LOCAL_DAILY_LOSS_PCT)
+      {
+         static datetime lastDdPrint = 0;
+         if (TimeCurrent() - lastDdPrint >= 60)
+         {
+            lastDdPrint = TimeCurrent();
+            Print("[", sym, "] Local daily loss circuit breaker: ", DoubleToString(dailyLossPct, 2),
+                  "% >= ", DoubleToString(LOCAL_DAILY_LOSS_PCT, 1), "% — no new trades");
+         }
+         return;
+      }
+   }
+
    // PROFITABLE FIX #2: Spread pre-filter — blocks signal request when spread
    // is too wide relative to volatility. A 3-pip spread on an 8-pip ATR move
    // means you start 37% of your SL in the hole. No signal survives that cost.
@@ -830,7 +947,7 @@ void ScanSymbol(string sym, int symIdx = -1)
       else if (StringFind(sym, "JPY") >= 0)                            maxSpread = 3.0;   // USDJPY, EURJPY
       else if (StringFind(sym, "EURGBP") >= 0)                         maxSpread = 1.5;   // tightest cross
       else if (StringFind(sym, "NZD") >= 0 || StringFind(sym, "CAD") >= 0) maxSpread = 3.0; // NZDUSD, USDCAD
-      if (StringFind(sym, "XAG") >= 0)                                 maxSpread = 20.0;  // silver (before XAU check)
+      if (StringFind(sym, "XAG") >= 0)                                 maxSpread = 40.0;  // silver (before XAU check)
       if (StringFind(sym, "XAU") >= 0 || sym == GOLD_SYMBOL)           maxSpread = 35.0;  // gold (overrides all)
       if (spreadPips >= maxSpread)
       {

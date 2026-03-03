@@ -8,9 +8,12 @@ Use this before and during your FTMO challenge to avoid rule breaches.
 
 | Rule | Bot behavior | Status |
 |------|----------------|--------|
-| **Max Daily Loss (5%)** | Equity cannot drop below (balance at day start) − 5% of initial capital. Checked before every new signal. | ✅ Enforced |
+| **Max Daily Loss (5%)** | Server: equity cannot drop below (balance at day start) − 5% of initial. **EA backup**: local 4% daily circuit breaker blocks new trades if server is down. | ✅ Enforced |
 | **Max Loss (10%)** | Equity cannot drop below max(initial, trailing peak) − 10% of initial. Checked before every new signal. | ✅ Enforced |
 | **Equity used for limits** | FTMO uses equity (balance + open P&L). We use the `equity` column from the equity table when available. | ✅ Correct |
+| **News blackout (backup)** | Server has news filter; **EA** has hardcoded backup: NFP (first Fri 12:00–14:00 GMT), FOMC-style (Wed 18:00–20:00 GMT). No new trades in these windows if Modal is down. | ✅ EA backup |
+| **Min 4 trading days** | Server counts distinct trading days; dashboard and API show **FTMO days X/4**. You must trade at least 4 days before passing evaluation. | ✅ Tracked |
+| **Friday close (standard)** | **EA**: optional close of all EA positions on Friday at 21:00 GMT (configurable). Use for standard FTMO; disable for Swing. | ✅ Optional |
 
 ---
 
@@ -39,7 +42,7 @@ Use this before and during your FTMO challenge to avoid rule breaches.
 
 | Rule | What to do |
 |------|------------|
-| **Min 4 trading days** | During evaluation, trade on at least 4 different days (at least one position opened per day). The bot does not block you from passing with fewer days; FTMO will fail the evaluation. |
+| **Min 4 trading days** | Dashboard shows **FTMO days X/4**. Trade on at least 4 different days; if you hit profit target in 3 days, keep trading until day 4 or FTMO will fail the evaluation. |
 | **Best Day Rule** | Your best single day’s profit must not exceed 50% of your total “positive days’ profit”. Informational only; we do not enforce it. Monitor in FTMO Account MetriX. |
 | **Profit target** | 10% (Challenge) / 5% (Verification). Track progress on the dashboard; close all positions before the target is reviewed. |
 | **No copy trading / tick scalping / abusive strategies** | The strategy is your own (regime + PPO); avoid copy trading, tick scalping, or martingale/grid that cannot scale. |
@@ -53,6 +56,10 @@ Use this before and during your FTMO challenge to avoid rule breaches.
 | **No equity data today** | Daily limit is still enforced using the last balance before day start and the latest equity row (no “free pass” on first signal of the day). |
 | **Close-all closing manual positions** | Dashboard “Stop & close all” now closes only positions with comment `ApexHydraFTMO`. |
 | **Old position comment** | Positions with comment `ApexHydra` (old EA) are no longer managed; use the new EA and only new positions get `ApexHydraFTMO`. |
+| **Server down during news** | EA has local news blackout (NFP first Fri 12–14 GMT, Wed 18–20 GMT). Disable with `USE_LOCAL_NEWS_BLACKOUT = false` if you prefer server-only. |
+| **Server down: daily loss** | EA tracks day-start balance (midnight GMT) and blocks new trades when daily loss ≥ 4% (`LOCAL_DAILY_LOSS_PCT`). Gives 1% buffer before FTMO 5% limit. |
+| **XAGUSD spread** | Silver spread cap raised to 40 pips (EA and server) so valid silver trades are not blocked by session spikes. |
+| **Weekend hold (standard)** | EA can close all its positions on Friday at 21:00 GMT (`FRIDAY_CLOSE_STANDARD = true`). Set to `false` for Swing accounts. |
 
 ---
 

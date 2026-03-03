@@ -236,6 +236,21 @@ mode           = state.get("mode", "SAFE")
 capital        = float(state.get("capital") or 10000)
 risk_day_start = state.get("risk_day_start")
 
+# FTMO min trading days (from Modal GET /)
+ftmo_trading_days = None
+ftmo_min_days = 4
+try:
+    base = MODAL_SIGNAL_URL.rstrip("/")
+    if base.endswith("/signal"):
+        base = base[:-7]
+    r = requests.get(base + "/", timeout=5)
+    if r.status_code == 200:
+        health = r.json()
+        ftmo_trading_days = health.get("ftmo_trading_days")
+        ftmo_min_days = health.get("ftmo_min_trading_days", 4)
+except Exception:
+    pass
+
 # ── Sidebar: Bot controls & settings ──────────────────────────────────────────
 with st.sidebar:
     st.markdown("### 🐍 ApexHydra PRO")
@@ -296,15 +311,17 @@ with hdr_l:
 with hdr_m:
     st.markdown(f'<div class="status-pill {status_class}">● {status_text}</div>', unsafe_allow_html=True)
 with hdr_r:
+    pills = [
+        f"Mode <strong>{mode}</strong>",
+        f"Capital <strong>${capital:,.0f}</strong>",
+        f"Max DD <strong>{float(state.get('max_daily_dd') or 0.05)*100:.1f}%</strong>",
+    ]
+    if ftmo_trading_days is not None:
+        pills.append(f"FTMO days <strong>{ftmo_trading_days}/{ftmo_min_days}</strong>")
+    pills.append(datetime.now(timezone.utc).strftime('%H:%M:%S') + " UTC")
+    inner = "".join(f'<span class="apex-pill">{p}</span>' for p in pills)
     st.markdown(
-        f"""
-        <div class="apex-hstack" style="justify-content:flex-end;">
-          <span class="apex-pill">Mode <strong>{mode}</strong></span>
-          <span class="apex-pill">Capital <strong>${capital:,.0f}</strong></span>
-          <span class="apex-pill">Max DD <strong>{float(state.get('max_daily_dd') or 0.05)*100:.1f}%</strong></span>
-          <span class="apex-pill">{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC</span>
-        </div>
-        """,
+        f'<div class="apex-hstack" style="justify-content:flex-end;">{inner}</div>',
         unsafe_allow_html=True,
     )
 st.markdown("<br>", unsafe_allow_html=True)
