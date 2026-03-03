@@ -73,6 +73,9 @@ input double METAL_QUICK_R        = 1.0;   // close metals at ~1.0R if > 0
 input bool   USE_LOCAL_NEWS_BLACKOUT = true;  // backup when server is unreachable
 //── Daily loss circuit breaker (FTMO 5% limit; EA stops at 4% as buffer) ─
 input double LOCAL_DAILY_LOSS_PCT    = 4.0;   // no new trades if daily loss >= this %
+//── Total DD circuit breaker (FTMO 10% limit; backup when Modal is down) ─
+input double INITIAL_CAPITAL_FOR_DD  = 0;     // 0 = disable; set to FTMO start capital for 10% local guard
+input double LOCAL_TOTAL_DD_PCT      = 9.5;   // no new trades if total DD >= this % (buffer before 10%)
 //── Friday close (standard FTMO: no weekend hold; Swing account = false) ─
 input bool   FRIDAY_CLOSE_STANDARD   = true;  // close all before weekend
 input int    FRIDAY_CLOSE_HOUR_GMT   = 21;    // close by this hour GMT on Friday
@@ -102,6 +105,8 @@ int      g_dayStartDate = 0;       // YYYYMMDD
 double   g_dayStartBalance = 0;    // balance at start of current day
 // Friday close: avoid closing multiple times
 int      g_fridayCloseDoneDate = 0; // YYYYMMDD when we last ran Friday close
+// Total DD circuit breaker: peak balance (updated in OnTimer); ref = max(INITIAL_CAPITAL_FOR_DD, g_peakBalance)
+double   g_peakBalance = 0;
 
 //+------------------------------------------------------------------+
 //| ReportTransaction                                                |
@@ -265,6 +270,8 @@ int OnInit()
    ScanDealHistoryForTransactions(g_lastDepositScan, nowInit);
    g_lastDepositScan = nowInit;
 
+   g_peakBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+
    Print("=== ApexHydraFTMO MultiScan started ===");
    Print("Symbols : ", SYMBOLS_CSV);
    Print("Endpoint: ", MODAL_BASE_URL);
@@ -272,10 +279,11 @@ int OnInit()
 }
 
 void OnDeinit(const int reason) { EventKillTimer(); }
-void OnTick()                   
+
+// Intentional: multi-symbol EA runs from OnTimer() (configurable interval). OnTick() would fire
+// every tick on the chart symbol only; OnTimer() runs the same logic for all symbols in SYMBOLS_CSV.
+void OnTick()
 {
-   // Main trading logic goes here
-   // This should contain the signal processing and trade execution code
 }
 
 //+------------------------------------------------------------------+
@@ -294,6 +302,11 @@ void OnTimer()
          g_dayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
       }
    }
+
+   //── Total DD circuit breaker: track peak balance (for local 10% guard when Modal is down)
+   double bal = AccountInfoDouble(ACCOUNT_BALANCE);
+   if (bal > g_peakBalance)
+      g_peakBalance = bal;
 
    //── Friday close (standard FTMO: no weekend hold) ────────────────────
    if (FRIDAY_CLOSE_STANDARD)
@@ -928,6 +941,27 @@ void ScanSymbol(string sym, int symIdx = -1)
                   "% >= ", DoubleToString(LOCAL_DAILY_LOSS_PCT, 1), "% — no new trades");
          }
          return;
+      }
+   }
+
+   // Total DD circuit breaker: no new trades if total DD >= 9.5% (buffer before FTMO 10%) when Modal is down
+   if (INITIAL_CAPITAL_FOR_DD > 0 && LOCAL_TOTAL_DD_PCT > 0 && g_peakBalance > 0)
+   {
+      double refPeak = MathMax(INITIAL_CAPITAL_FOR_DD, g_peakBalance);
+      if (refPeak > 0 && equity < refPeak)
+      {
+         double totalDdPct = (refPeak - equity) / refPeak * 100.0;
+         if (totalDdPct >= LOCAL_TOTAL_DD_PCT)
+         {
+            static datetime lastTotalDdPrint = 0;
+            if (TimeCurrent() - lastTotalDdPrint >= 60)
+            {
+               lastTotalDdPrint = TimeCurrent();
+               Print("[", sym, "] Local total DD circuit breaker: ", DoubleToString(totalDdPct, 2),
+                     "% >= ", DoubleToString(LOCAL_TOTAL_DD_PCT, 1), "% — no new trades");
+            }
+            return;
+         }
       }
    }
 

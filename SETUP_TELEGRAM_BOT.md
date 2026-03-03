@@ -65,12 +65,12 @@ Replace with your real bot token, your Telegram ID(s), and your Supabase URL/key
 
 ```env
 DD_ALERT_PCT=4.0
-DD_CRITICAL_PCT=8.0
+DD_CRITICAL_PCT=4.8
 MONITOR_INTERVAL_S=60
 ```
 
 - `DD_ALERT_PCT` — drawdown % that triggers a warning (default 4).
-- `DD_CRITICAL_PCT` — drawdown % that triggers a critical alert (default 8).
+- `DD_CRITICAL_PCT` — drawdown % that triggers a critical alert (default 4.8; FTMO breaches at 5%).
 - `MONITOR_INTERVAL_S` — how often the bot checks for alerts (default 60 seconds).
 
 ---

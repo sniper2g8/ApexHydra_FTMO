@@ -8,8 +8,7 @@
 ║    TELEGRAM_ALLOWED_IDS=123456789                                    ║
 ║    SUPABASE_URL=https://xxx.supabase.co  (FOREX Supabase project)    ║
 ║    SUPABASE_KEY=your_service_role_key                                ║
-║    DD_ALERT_PCT=4.0                                                  ║
-║    DD_CRITICAL_PCT=8.0                                               ║
+║    DD_ALERT_PCT=4.0   DD_CRITICAL_PCT=4.8 (FTMO breach at 5%!)       ║
 ║    MONITOR_INTERVAL_S=60                                             ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
@@ -41,16 +40,17 @@ SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 
 DD_ALERT_PCT       = float(os.getenv("DD_ALERT_PCT",      "4.0"))
-DD_CRITICAL_PCT    = float(os.getenv("DD_CRITICAL_PCT",   "8.0"))
+DD_CRITICAL_PCT    = float(os.getenv("DD_CRITICAL_PCT",   "4.8"))  # FTMO breaches at 5%; alert before
 MONITOR_INTERVAL_S = int(os.getenv("MONITOR_INTERVAL_S",  "60"))
 
 sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 _alert_state: dict = {
-    "last_dd_alert":    None,
-    "dd_alerted_pct":   0.0,
-    "last_trade_alert": None,
-    "stopped_alerted":  False,
+    "last_dd_alert":       None,
+    "dd_alerted_pct":      0.0,
+    "last_trade_alert":    None,   # last opened_at we alerted (for OPEN alerts)
+    "last_closed_alert":   None,   # last closed_at we alerted (for CLOSED alerts)
+    "stopped_alerted":     False,
 }
 
 # ── Display helpers ───────────────────────────────────────────────────
@@ -148,6 +148,15 @@ def db_get_closed_trades(limit: int = 500) -> list:
            .not_.is_("pnl","null")
            .order("closed_at", desc=True).limit(limit).execute())
     return r.data or []
+
+
+def db_get_newest_closed_trade() -> dict | None:
+    """Most recently closed trade (by closed_at). Used for Telegram closed-trade alerts."""
+    r = (sb.table("trades").select("*")
+           .not_.is_("pnl", "null")
+           .not_.is_("closed_at", "null")
+           .order("closed_at", desc=True).limit(1).execute())
+    return r.data[0] if r.data else None
 
 
 def db_get_current_regimes() -> list:
@@ -850,43 +859,62 @@ async def monitor_job(ctx: ContextTypes.DEFAULT_TYPE):
         elif is_running:
             _alert_state["stopped_alerted"] = False
 
-        # New trade alerts
-        last_trade_ts = _alert_state.get("last_trade_alert")
-        trades = db_get_recent_trades(5)
-        if trades:
-            newest    = trades[0]
-            newest_ts = newest.get("opened_at","") or newest.get("closed_at","")
-            if last_trade_ts != newest_ts:
-                _alert_state["last_trade_alert"] = newest_ts
-                sym   = newest.get("symbol","")
-                d     = newest.get("direction","")
-                lot   = newest.get("lot",0)
-                conf  = float(newest.get("confidence",0) or 0)*100
-                reg   = newest.get("regime","?")
-                pnl   = newest.get("pnl")
-                strat = newest.get("strategy","?")
-                dir_e = DIRECTION_EMOJI.get(d,"⚪")
-                reg_e = REGIME_EMOJI.get(str(reg),"⚪")
+        # New trade alerts: OPEN (by opened_at) and CLOSED (by closed_at) separately
+        last_open_ts  = _alert_state.get("last_trade_alert")
+        last_close_ts = _alert_state.get("last_closed_alert")
 
-                if pnl is None:
-                    opened = str(newest.get("opened_at",""))[:16]
-                    msg = (
-                        f"📂 <b>Trade OPENED</b>\n"
-                        f"{dir_e} <b>{sym}</b> | Lots: <code>{lot}</code> | Conf: <code>{conf:.0f}%</code>\n"
-                        f"Regime: {reg_e} <i>{reg}</i> | <i>{strat}</i>\n"
-                        f"<code>{opened}</code>"
-                    )
-                else:
-                    pnl_v  = float(pnl)
-                    icon   = "✅" if pnl_v >= 0 else "❌"
-                    closed = str(newest.get("closed_at",""))[:16]
+        # 1) Newly closed trade — check most recently closed (so we always report closes)
+        newest_closed = db_get_newest_closed_trade()
+        if newest_closed:
+            closed_at = newest_closed.get("closed_at") or ""
+            if closed_at:
+                if last_close_ts is None:
+                    _alert_state["last_closed_alert"] = closed_at  # seed on first run, don't spam old closes
+                elif closed_at != last_close_ts:
+                    _alert_state["last_closed_alert"] = closed_at
+                    sym   = newest_closed.get("symbol", "")
+                    d     = newest_closed.get("direction", "")
+                    lot   = newest_closed.get("lot", 0)
+                    reg   = newest_closed.get("regime", "?")
+                    pnl_v = float(newest_closed.get("pnl", 0) or 0)
+                    icon  = "✅" if pnl_v >= 0 else "❌"
+                    dir_e = DIRECTION_EMOJI.get(d, "⚪")
+                    reg_e = REGIME_EMOJI.get(str(reg), "⚪")
+                    closed_ts = str(closed_at)[:16].replace("T", " ")
                     msg = (
                         f"📁 <b>Trade CLOSED</b> {icon}\n"
                         f"{dir_e} <b>{sym}</b> P&amp;L: <code>{pnl_v:+.2f}</code>\n"
                         f"Lots: <code>{lot}</code> | {reg_e} <i>{reg}</i>\n"
-                        f"<code>{closed}</code>"
+                        f"<code>{closed_ts}</code>"
                     )
-                for cid in chat_ids: await ctx.bot.send_message(cid, msg, parse_mode=ParseMode.HTML)
+                    for cid in chat_ids:
+                        await ctx.bot.send_message(cid, msg, parse_mode=ParseMode.HTML)
+
+        # 2) Newly opened trade — newest by opened_at that is still open
+        trades = db_get_recent_trades(5)
+        if trades:
+            newest = trades[0]
+            pnl    = newest.get("pnl")
+            opened_at = newest.get("opened_at") or ""
+            if pnl is None and opened_at and opened_at != last_open_ts:
+                _alert_state["last_trade_alert"] = opened_at
+                sym   = newest.get("symbol", "")
+                d     = newest.get("direction", "")
+                lot   = newest.get("lot", 0)
+                conf  = float(newest.get("confidence", 0) or 0) * 100
+                reg   = newest.get("regime", "?")
+                strat = newest.get("strategy", "?")
+                dir_e = DIRECTION_EMOJI.get(d, "⚪")
+                reg_e = REGIME_EMOJI.get(str(reg), "⚪")
+                opened_ts = str(opened_at)[:16].replace("T", " ")
+                msg = (
+                    f"📂 <b>Trade OPENED</b>\n"
+                    f"{dir_e} <b>{sym}</b> | Lots: <code>{lot}</code> | Conf: <code>{conf:.0f}%</code>\n"
+                    f"Regime: {reg_e} <i>{reg}</i> | <i>{strat}</i>\n"
+                    f"<code>{opened_ts}</code>"
+                )
+                for cid in chat_ids:
+                    await ctx.bot.send_message(cid, msg, parse_mode=ParseMode.HTML)
 
     except Exception as e:
         logger.error(f"Monitor error: {e}")

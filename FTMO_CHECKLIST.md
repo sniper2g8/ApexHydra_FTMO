@@ -58,6 +58,8 @@ Use this before and during your FTMO challenge to avoid rule breaches.
 | **Old position comment** | Positions with comment `ApexHydra` (old EA) are no longer managed; use the new EA and only new positions get `ApexHydraFTMO`. |
 | **Server down during news** | EA has local news blackout (NFP first Fri 12–14 GMT, Wed 18–20 GMT). Disable with `USE_LOCAL_NEWS_BLACKOUT = false` if you prefer server-only. |
 | **Server down: daily loss** | EA tracks day-start balance (midnight GMT) and blocks new trades when daily loss ≥ 4% (`LOCAL_DAILY_LOSS_PCT`). Gives 1% buffer before FTMO 5% limit. |
+| **Server down: total DD** | Set EA input `INITIAL_CAPITAL_FOR_DD` to your FTMO start capital. EA then blocks new trades when total DD ≥ 9.5% (`LOCAL_TOTAL_DD_PCT`) so 10% is never breached if Modal is down. |
+| **Telegram critical DD** | Use `DD_CRITICAL_PCT=4.8` in .env (default in code). FTMO breaches at 5%; critical alert must fire before that. |
 | **XAGUSD spread** | Silver spread cap raised to 40 pips (EA and server) so valid silver trades are not blocked by session spikes. |
 | **Weekend hold (standard)** | EA can close all its positions on Friday at 21:00 GMT (`FRIDAY_CLOSE_STANDARD = true`). Set to `false` for Swing accounts. |
 
