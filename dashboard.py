@@ -516,13 +516,13 @@ if equity_rows:
 else:
     today_pnl = 0.0
 
-# ── Daily drawdown ────────────────────────────────────────────────────────────
+# ── Daily drawdown (FTMO: measured on equity = balance + floating P&L) ─────────
 # Subtract today's withdrawals from the day-open balance before computing DD
 # so a withdrawal at 10:00 doesn't make the rest of the day look like a loss.
 if equity_rows:
     bals               = [float(r.get("balance") or capital) for r in equity_rows]
     adj_day_start      = bals[0] - withdrawn_today
-    daily_dd_pct       = max(0.0, (adj_day_start - cur_bal) / adj_day_start) * 100 \
+    daily_dd_pct       = max(0.0, (adj_day_start - cur_equity) / adj_day_start) * 100 \
                          if adj_day_start > 0 else 0.0
 else:
     daily_dd_pct = 0.0
@@ -538,7 +538,7 @@ if all_eq_latest:
         raw_peak     = float(peak_row[0].get("balance") or capital) if peak_row else capital
         # Trading peak = highest recorded balance minus capital already withdrawn
         trading_peak = max(raw_peak - total_withdrawn, pnl_baseline)
-        total_dd_pct = max(0.0, (trading_peak - cur_bal) / trading_peak) * 100 \
+        total_dd_pct = max(0.0, (trading_peak - cur_equity) / trading_peak) * 100 \
                        if trading_peak > 0 else 0.0
     except Exception:
         total_dd_pct = 0.0

@@ -224,14 +224,15 @@ def db_recent_withdrawal(within_minutes: int = 10) -> dict | None:
 
 
 def _compute_daily_pnl(state: dict) -> tuple[float, float]:
-    """Returns (today_pnl, daily_dd_pct) from equity table."""
+    """Returns (today_pnl, daily_dd_pct) from equity table. FTMO: daily DD uses equity (balance + floating P&L)."""
     eq_today  = db_get_equity_today()
     eq_latest = db_get_equity()
     cur_bal   = float(eq_latest.get("balance", float(state.get("capital", 0))))
+    cur_equity = float(eq_latest.get("equity", cur_bal))
     if eq_today:
         day_start = float(eq_today[0].get("balance", cur_bal))
         today_pnl = cur_bal - day_start
-        daily_dd  = max(0.0, (day_start - cur_bal) / day_start * 100) if day_start > 0 else 0.0
+        daily_dd  = max(0.0, (day_start - cur_equity) / day_start * 100) if day_start > 0 else 0.0
     else:
         today_pnl = 0.0
         daily_dd  = 0.0

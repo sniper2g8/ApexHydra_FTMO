@@ -2320,7 +2320,7 @@ def portfolio_rotation():
     # FIX 5a: Added XAUUSDm alongside XAUUSD so the rotation scorer tracks the
     # actual broker symbol name used by the EA. If only one is active, list just
     # that one — having both avoids missing either variant.
-    SYMS     = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "XAUUSDm"]  # GBPJPY removed
+    SYMS     = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "XAUUSDm", "XAGUSD"]
     lookback = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
     scored   = []
 
@@ -2349,7 +2349,7 @@ def portfolio_rotation():
     # Previously: row["enabled"] = i < 2  — this disabled USDJPY (rank 3+) and
     # GBPUSD during quiet weeks, preventing ALL trades during London session.
     # Fix: mark the top-2 by score as enabled, but always keep core trio on.
-    # All 11 pairs are marked ALWAYS_ON — symbol rotation should never disable a pair
+    # Rotation symbols are marked ALWAYS_ON — symbol rotation should never disable a pair
     # we're actively scanning.  Rotation's purpose is to boost the TOP performers, not
     # to silence underperformers (that job belongs to the cooldown and compliance engine).
     # A quiet EURGBP week would disable it exactly before it starts moving.
@@ -2405,7 +2405,7 @@ _LOT_SCALE = {
 # institutional flow.  Wider windows = more opportunities but lower signal quality.
 # Start conservative; widen after 50+ trades confirm win rate > 50% per session.
 #
-# 11-pair grid (UTC):
+# Session grid (UTC) — pairs in EA + rotation:
 #   EURUSD  07-17  London + NY  — USD pair, liquid both sessions
 #   GBPUSD  07-17  London + NY  — confirmed strong performer
 #   USDJPY  00-16  Asian + LON + early NY — Tokyo is prime JPY session
