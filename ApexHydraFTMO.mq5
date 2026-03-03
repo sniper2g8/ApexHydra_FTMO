@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
-//| ApexHydra_EA.mq5                                                 |
+//| ApexHydraFTMO.mq5                                                |
 //| Multi-symbol scanner — one chart trades all pairs                |
 //| Reports real MT5 account balance to Modal on every scan          |
 //| so the dashboard P&L updates in real time.                       |
 //+------------------------------------------------------------------+
-#property copyright "ApexHydra PRO"
+#property copyright "ApexHydra FTMO"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -237,7 +237,7 @@ int OnInit()
    // and the user is alerted rather than left believing the bot is working.
    if (!EventSetTimer(1))
    {
-      Print("=== ApexHydra FATAL: EventSetTimer(1) failed — EA cannot start ===");
+      Print("=== ApexHydraFTMO FATAL: EventSetTimer(1) failed — EA cannot start ===");
       Print("    Retry: remove and re-attach the EA, or restart MT5.");
       return INIT_FAILED;
    }
@@ -249,7 +249,7 @@ int OnInit()
    ScanDealHistoryForTransactions(g_lastDepositScan, nowInit);
    g_lastDepositScan = nowInit;
 
-   Print("=== ApexHydra MultiScan started ===");
+   Print("=== ApexHydraFTMO MultiScan started ===");
    Print("Symbols : ", SYMBOLS_CSV);
    Print("Endpoint: ", MODAL_BASE_URL);
    return INIT_SUCCEEDED;
@@ -592,7 +592,7 @@ void MoveAllStopsToBreakeven()
    {
       ulong ticket = PositionGetTicket(i);
       if (ticket == 0) continue;
-      if (PositionGetString(POSITION_COMMENT) != "ApexHydra") continue;
+      if (PositionGetString(POSITION_COMMENT) != "ApexHydraFTMO") continue;
       
       string sym = PositionGetString(POSITION_SYMBOL);
       double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
@@ -649,7 +649,7 @@ void CloseAllPositionsEmergency()
    {
       ulong ticket = PositionGetTicket(i);
       if (ticket == 0) continue;
-      if (PositionGetString(POSITION_COMMENT) != "ApexHydra") continue;
+      if (PositionGetString(POSITION_COMMENT) != "ApexHydraFTMO") continue;
       
       string sym = PositionGetString(POSITION_SYMBOL);
       
@@ -991,7 +991,7 @@ void ScanSymbol(string sym, int symIdx = -1)
             if (tk == 0) continue;
             if (PositionGetString(POSITION_SYMBOL) != sym) continue;
             if ((ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE) != POSITION_TYPE_SELL) continue;
-            if (PositionGetString(POSITION_COMMENT) != "ApexHydra") continue;
+            if (PositionGetString(POSITION_COMMENT) != "ApexHydraFTMO") continue;
             double pnl = PositionGetDouble(POSITION_PROFIT);
             if (pnl <= 0) // only close if losing or flat
                trade.PositionClose(tk);
@@ -1008,7 +1008,7 @@ void ScanSymbol(string sym, int symIdx = -1)
             if (tk == 0) continue;
             if (PositionGetString(POSITION_SYMBOL) != sym) continue;
             if ((ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE) != POSITION_TYPE_BUY) continue;
-            if (PositionGetString(POSITION_COMMENT) != "ApexHydra") continue;
+            if (PositionGetString(POSITION_COMMENT) != "ApexHydraFTMO") continue;
             double pnl = PositionGetDouble(POSITION_PROFIT);
             if (pnl <= 0)
                trade.PositionClose(tk);
@@ -1180,9 +1180,9 @@ void ScanSymbol(string sym, int symIdx = -1)
       }
       
       if (action == "BUY")
-         ok = trade.Buy(lot, sym, ask, sl_price, tp_price, "ApexHydra");
+         ok = trade.Buy(lot, sym, ask, sl_price, tp_price, "ApexHydraFTMO");
       else
-         ok = trade.Sell(lot, sym, bid, sl_price, tp_price, "ApexHydra");
+         ok = trade.Sell(lot, sym, bid, sl_price, tp_price, "ApexHydraFTMO");
       
       tradeRetCode = (int)trade.ResultRetcode();
       
@@ -1277,7 +1277,7 @@ int CountPositions(string sym, ENUM_POSITION_TYPE posType)
       // FIX BUG#2: only count our own positions — ClosePositions() already did
       // this but CountPositions() didn't, causing manual/external trades to count
       // toward the position limit and block the bot from opening its own trades.
-      if (PositionGetString(POSITION_COMMENT) != "ApexHydra") continue;
+      if (PositionGetString(POSITION_COMMENT) != "ApexHydraFTMO") continue;
       if (PositionGetString(POSITION_SYMBOL) == sym &&
           (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE) == posType) n++;
    }
@@ -1291,7 +1291,7 @@ void ClosePositions(string sym, ENUM_POSITION_TYPE posType)
       ulong ticket = PositionGetTicket(i);
       if (ticket == 0) continue;
       // BUG FIX: only close OUR positions — never touch manually-opened trades
-      if (PositionGetString(POSITION_COMMENT) != "ApexHydra") continue;
+      if (PositionGetString(POSITION_COMMENT) != "ApexHydraFTMO") continue;
       if (PositionGetString(POSITION_SYMBOL) == sym &&
           (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE) == posType)
       {
@@ -1346,7 +1346,7 @@ void ManagePositions()
    {
       ulong ticket = PositionGetTicket(i);
       if (ticket == 0) continue;
-      if (PositionGetString(POSITION_COMMENT) != "ApexHydra") continue;
+      if (PositionGetString(POSITION_COMMENT) != "ApexHydraFTMO") continue;
 
       // PROFITABLE FIX #9: Profit-aware time exit.
       // Old: hard close after 4 hours unconditionally — killed profitable runners.
@@ -1735,13 +1735,15 @@ void CheckCommands()
    // Check if close_all command is present
    if (StringFind(resp, "close_all") < 0) return;
 
-   Print("=== DASHBOARD STOP: Closing ALL positions ===");
+   Print("=== DASHBOARD STOP: Closing ALL ApexHydraFTMO positions ===");
 
    int closed = 0;
    for (int i = PositionsTotal() - 1; i >= 0; i--)
    {
       ulong ticket = PositionGetTicket(i);
       if (ticket == 0) continue;
+      // Only close positions opened by this EA — leave manual/other EAs' positions alone
+      if (PositionGetString(POSITION_COMMENT) != "ApexHydraFTMO") continue;
 
       string sym = PositionGetString(POSITION_SYMBOL);
       if (trade.PositionClose(ticket))

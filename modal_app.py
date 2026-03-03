@@ -2733,10 +2733,27 @@ def _check_compliance(supabase, state: dict, symbol: str = "") -> tuple:
             # Non-fatal — don't block trading just because the cooldown check errored
 
     # FTMO Max Daily Loss: equity cannot drop below (balance at day start) − 5% of initial capital.
+    # When we have equity rows today: use first row as day_start_bal, last as cur_equity.
+    # When we have NO equity rows today (e.g. first signal of the day): still enforce daily limit
+    # by using last balance before day_start_ts as day_start_bal and latest equity row as cur_equity.
+    cur_equity = cap
+    day_start_bal = None
     if eq:
         day_start_bal = float(eq[0].get("balance") or 0)
-        # Current equity (incl. open P&L); FTMO rules apply to equity, not balance only.
         cur_equity = float(eq[-1].get("equity") or eq[-1].get("balance") or cap)
+    else:
+        try:
+            # No equity data today — get latest snapshot and last balance before day start
+            latest_row = supabase.table("equity").select("balance", "equity").order("timestamp", desc=True).limit(1).execute().data
+            if latest_row:
+                cur_equity = float(latest_row[0].get("equity") or latest_row[0].get("balance") or cap)
+            day_before = supabase.table("equity").select("balance").lt("timestamp", day_start_ts).order("timestamp", desc=True).limit(1).execute().data
+            if day_before:
+                day_start_bal = float(day_before[0].get("balance") or 0)
+        except Exception as _e:
+            log.warning("[COMPLIANCE] Fallback day-start query failed (non-fatal): %s", _e)
+
+    if day_start_bal is not None and initial_cap > 0:
         daily_floor = day_start_bal - (mxdd * initial_cap)
         if cur_equity < daily_floor:
             ddd_pct = max(0.0, (day_start_bal - cur_equity) / day_start_bal * 100) if day_start_bal > 0 else 0.0
@@ -2744,11 +2761,10 @@ def _check_compliance(supabase, state: dict, symbol: str = "") -> tuple:
 
     # FTMO Max Loss: equity cannot drop below max(initial, trailing peak) − 10% of initial.
     try:
-        if eq:
-            cur_equity = float(eq[-1].get("equity") or eq[-1].get("balance") or cap)
-        else:
+        if not eq:
             latest = supabase.table("equity").select("balance", "equity").order("timestamp", desc=True).limit(1).execute().data
-            cur_equity = float(latest[0].get("equity") or latest[0].get("balance") or cap) if latest else cap
+            if latest:
+                cur_equity = float(latest[0].get("equity") or latest[0].get("balance") or cap)
         peak_row   = (
             supabase.table("equity")
             .select("balance")
